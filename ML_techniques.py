@@ -89,42 +89,106 @@ class NeuralStepSolver(nn.Module):
         return v_n + dt * res[:, 0:1], w_n + dt * res[:, 1:2]
 
 
+#########################################################################################
 
-
-
-# Initialize model
-pinn_model = ActionPotentialPINN()
-
-# --- RUNNING SCHEME 1: Standard PINN ---
-start_time = time.time()
-print("Starting Standard PINN Training...")
-trained_pinn = train_standard_pinn(pinn_model, epochs=10000)
-training_time = time.time() - start_time
-print(f"Training completed in {training_time:.2f} seconds.") # For Requirement #7
-
-# --- GENERATING RESULTS ---
-# Create a grid for testing (Time vs. Space)
+# Setup the testing grid (100x100 space-time domain)
 t_test = torch.linspace(0, 1, 100).view(-1, 1)
 x_test = torch.linspace(0, 1, 100).view(-1, 1)
-
-# Correctly create the 2D grid
 T, X = torch.meshgrid(t_test.squeeze(), x_test.squeeze(), indexing='ij')
-
-# Reshape into (N, 2) where N = 10000
-# We need only TWO columns: one for T and one for X
 test_input = torch.stack([T.flatten(), X.flatten()], dim=1)
 
-# Predict with AI
-with torch.no_grad():
-    predictions = trained_pinn.net(test_input) # Directly call the network
-    # V is the first output column (membrane potential)
-    V_pred = predictions[:, 0].reshape(100, 100).numpy()
+# ==========================================
+# 1. RUN & TEST SCHEME 1: Standard PINN
+# ==========================================
+print("--- Training Scheme 1: Standard PINN ---")
+model_1 = ActionPotentialPINN()
+start_1 = time.time()
+train_standard_pinn(model_1, epochs=10000)
+time_1 = time.time() - start_1
+print(f"Scheme 1 completed in {time_1:.2f} seconds.\n")
 
-# --- PLOTTING (For Requirement #8 & #12) ---
-plt.figure(figsize=(10, 4))
-plt.contourf(T.numpy(), X.numpy(), V_pred, cmap='jet')
-plt.colorbar(label='Membrane Potential (V)')
-plt.title("AI-Generated Action Potential Propagation")
-plt.xlabel("Time (t)")
-plt.ylabel("Space (x)")
-plt.show() # This plot goes in your 4-page report and presentation
+with torch.no_grad():
+    pred_1 = model_1.net(test_input)
+    V_pred_1 = pred_1[:, 0].reshape(100, 100).numpy()
+
+
+# ==========================================
+# 2. RUN & TEST SCHEME 2: Hybrid PINN
+# ==========================================
+print("--- Training Scheme 2: Hybrid PINN ---")
+model_2 = ActionPotentialPINN()
+
+# MOCK DATA: Replace these placeholders with actual array selections 
+# extracted from your traditional numerical solver grid!
+mock_t = torch.rand(50, 1)
+mock_x = torch.rand(50, 1)
+mock_v = torch.sin(mock_t) * torch.cos(mock_x) # Your numerical solver outputs go here
+
+start_2 = time.time()
+train_hybrid_pinn(model_2, mock_t, mock_x, mock_v, epochs=10000)
+time_2 = time.time() - start_2
+print(f"Scheme 2 completed in {time_2:.2f} seconds.\n")
+
+with torch.no_grad():
+    pred_2 = model_2.net(test_input)
+    V_pred_2 = pred_2[:, 0].reshape(100, 100).numpy()
+
+
+# ==========================================
+# 3. RUN & TEST SCHEME 3: Neural Step Solver
+# ==========================================
+print("--- Running Scheme 3: Neural Step Solver ---")
+model_3 = NeuralStepSolver()
+dt = 0.01
+
+# Initialize starting boundary states (e.g., resting potential over space)
+v_initial = torch.zeros(100, 1) 
+w_initial = torch.zeros(100, 1)
+
+# Add an initial stimulus trigger at the boundary to initiate a propagation spike
+v_initial[0:10, 0] = 1.0 
+
+v_current = v_initial.clone()
+w_current = w_initial.clone()
+v_history = [v_current.numpy().flatten()]
+
+start_3 = time.time()
+# March sequentially step-by-step through the 100 time increments
+for step in range(99):
+    with torch.no_grad():
+        v_next, w_next = model_3(v_current, w_current, dt)
+        v_history.append(v_next.numpy().flatten())
+        v_current, w_current = v_next, w_next
+time_3 = time.time() - start_3
+print(f"Scheme 3 time-marching completed in {time_3:.2f} seconds.\n")
+
+V_pred_3 = np.array(v_history) # Formulates a 100x100 space-time array
+
+
+# ==========================================
+# VISUAL COMPARISON (Requirement #8 & #12)
+# ==========================================
+fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+# Plot Scheme 1
+im1 = axes[0].contourf(T.numpy(), X.numpy(), V_pred_1, cmap='jet')
+axes[0].set_title(f"Standard PINN\nTime: {time_1:.1f}s")
+axes[0].set_xlabel("Time (t)")
+axes[0].set_ylabel("Space (x)")
+fig.colorbar(im1, ax=axes[0])
+
+# Plot Scheme 2
+im2 = axes[1].contourf(T.numpy(), X.numpy(), V_pred_2, cmap='jet')
+axes[1].set_title(f"Hybrid PINN\nTime: {time_2:.1f}s")
+axes[1].set_xlabel("Time (t)")
+fig.colorbar(im2, ax=axes[1])
+
+# Plot Scheme 3
+im3 = axes[2].contourf(T.numpy(), X.numpy(), V_pred_3, cmap='jet')
+axes[2].set_title(f"Neural Step Solver\nTime: {time_3:.1f}s")
+axes[2].set_xlabel("Time (t)")
+fig.colorbar(im3, ax=axes[2])
+
+plt.tight_layout()
+plt.savefig("pinn_approaches_comparison.png")
+plt.show()
