@@ -112,9 +112,9 @@ class NeuralStepSolver(nn.Module):
     def __init__(self):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(1, 64), nn.Tanh(), 
-            nn.Linear(64, 64), nn.Tanh(),
-            nn.Linear(64, 1)
+            nn.Linear(100, 128), nn.Tanh(), 
+            nn.Linear(128, 128), nn.Tanh(),
+            nn.Linear(128, 100)
         )
         
     def forward(self, u_n, dt):
@@ -124,8 +124,8 @@ def pre_train_step_solver(model, U_numerical, dt, epochs=6000):
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     
     # Train across the full sequential grid matrix pairs
-    inputs = torch.tensor(U_numerical[:-1, :], dtype=torch.float32).flatten().view(-1, 1)
-    targets = torch.tensor(U_numerical[1:, :], dtype=torch.float32).flatten().view(-1, 1)
+    inputs = torch.tensor(U_numerical[:-1, :], dtype=torch.float32)
+    targets = torch.tensor(U_numerical[1:, :], dtype=torch.float32)
     
     for epoch in range(epochs):
         pred_next = inputs + dt * model.net(inputs)
@@ -133,6 +133,9 @@ def pre_train_step_solver(model, U_numerical, dt, epochs=6000):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+        if epoch % 2000 == 0:
+            print(f"  Step Solver Pre-training Epoch {epoch}/6000 - Loss: {loss.item():.6f}")
     return model
 
 # =====================================================================
@@ -186,8 +189,8 @@ if __name__ == "__main__":
     print(f"Scheme 3 Offline Pre-training completed in {time_train_3:.2f} seconds.")
     
     # Execution loop
-    u_current = torch.zeros(100, 1)
-    u_current[0:15, 0] = 1.0  # Apply boundary trigger condition
+    u_current = torch.zeros(1, 100)
+    u_current[0, 0:15] = 1.0
     
     start_3 = time.time()
     for step in range(500): 
@@ -197,7 +200,7 @@ if __name__ == "__main__":
     print(f"Scheme 3 time-marching loop completed in {time_3:.4f} seconds.")
 
     # --- SAVE INFRASTRUCTURE OUTPUTS ---
-    u_pred_3 = u_current.numpy() 
+    u_pred_3 = u_current.numpy().T
 
     # Cleaned line assignment parsing the accurate textbook array indices
     t_index_05 = (np.abs(t_numerical - 0.5)).argmin()
